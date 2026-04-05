@@ -1,0 +1,20 @@
+# Core
+python-dotenv
+tqdm
+numpy
+
+# Azure
+azure-storage-file-datalake
+azure-search-documents
+azure-core
+
+# PyTorch stack
+torch
+scikit-learn
+
+# HuggingFace stack (MATCHED)
+transformers
+sentence-transformers
+# datasets
+# accelerate
+huggingface_hub
