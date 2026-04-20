@@ -25,7 +25,7 @@ class LegalTextCleaner:
                 r'SUPREME COURT REPORTS.*?\]',
                 flags=re.IGNORECASE
             ),
-            'citations': re.compile(r'\(\d{4}.*?\)'),
+            'citations': re.compile(r'\(\d{4}[^)]*[A-Z]{2,}[^)]*\)'),
             'hyphen_breaks': re.compile(r'-\s+'),
             'whitespace': re.compile(r'\s+'),
         }

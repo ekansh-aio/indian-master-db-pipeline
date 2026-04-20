@@ -2,10 +2,12 @@
 Azure Data Lake Storage (ADLS) Uploader Module
 Handles writing JSON documents and chunks back to ADLS Gen2.
 """
-import json
 import logging
 from typing import List, Dict, Optional
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.json_helper import safe_json_dumps
 from azure.storage.filedatalake import DataLakeServiceClient
 from azure.core.exceptions import AzureError
 from tqdm import tqdm
@@ -67,8 +69,8 @@ class ADLSUploader:
         try:
             logger.info(f"Uploading JSON to ADLS path: {adls_path}")
             
-            # Convert to JSON string
-            json_str = json.dumps(data, indent=2, ensure_ascii=False)
+            # Convert to JSON string (handles numpy, NaN, Inf)
+            json_str = safe_json_dumps(data)
             json_bytes = json_str.encode('utf-8')
             
             # Get file client
@@ -180,7 +182,7 @@ class ADLSUploader:
                 directory_client.get_directory_properties()
                 logger.debug(f"Directory already exists: {directory_path}")
                 return True
-            except:
+            except Exception:
                 # Doesn't exist, create it
                 directory_client.create_directory()
                 logger.info(f"Created directory: {directory_path}")
@@ -260,9 +262,13 @@ class ADLSUploader:
             file_client = self.file_system_client.get_file_client(adls_path)
             file_client.get_file_properties()
             return True
-        except:
+        except Exception:
             return False
-    
+
+    def write_marker(self, marker_path: str) -> bool:
+        """Write a lightweight completion marker to ADLS."""
+        return self.upload_json_file({"done": True}, marker_path, overwrite=True)
+
     def delete_file(self, adls_path: str) -> bool:
         """
         Delete a file from ADLS.
