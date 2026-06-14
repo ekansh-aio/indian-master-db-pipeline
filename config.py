@@ -1,242 +1,204 @@
 """
-Enhanced configuration file for the legal document processing pipeline.
-All settings can be overridden by environment variables.
-
-UPDATED: Added role classification configuration
+Configuration for the legal document processing pipeline.
+Credentials are loaded from .env. Paths and index names are defined here.
 """
 import os
 from dotenv import load_dotenv
-from role_desc import ROLE_DESCRIPTIONS_DICT
 
-
-# Load environment variables
 load_dotenv()
 
 # ========================================
-# LOGGING CONFIGURATION
+# LOGGING
 # ========================================
 LOGGING_CONFIG = {
-    "level": os.getenv("LOG_LEVEL", "INFO"),  # DEBUG, INFO, WARNING, ERROR
-    "log_file": os.getenv("LOG_FILE", "pipeline.log"),  # Set to None for console only
+    "level": os.getenv("LOG_LEVEL", "INFO"),
+    "log_file": os.getenv("LOG_FILE", "pipeline.log"),
     "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 }
 
 # ========================================
-# AZURE DATA LAKE STORAGE (ADLS) CONFIGURATION
+# AZURE DATA LAKE STORAGE — credentials only
+# Paths are in DOC_TYPE_CONFIG below
 # ========================================
 ADLS_CONFIG = {
-    "account_name": os.getenv("ADLS_ACCOUNT_NAME"),
-    "account_key": os.getenv("ADLS_ACCOUNT_KEY"),
+    "account_name":   os.getenv("ADLS_ACCOUNT_NAME"),
+    "account_key":    os.getenv("ADLS_ACCOUNT_KEY"),
     "container_name": os.getenv("ADLS_CONTAINER_NAME"),
-    "input_path": os.getenv("ADLS_INPUT_PATH", "raw/newapp"),  # Base path in ADLS
-    "file_pattern": "*.json",  # Pattern to match files
-    "recursive": True  # Whether to search recursively
+    "file_pattern":   "*.json",
+    "recursive":      True
 }
 
 # ========================================
-# AZURE AI SEARCH CONFIGURATION
+# AZURE AI SEARCH — credentials only
+# Index names are in DOC_TYPE_CONFIG below
 # ========================================
 SEARCH_CONFIG = {
-    "endpoint": os.getenv("SEARCH_ENDPOINT"),
-    "key": os.getenv("SEARCH_KEY"),
-    "index_name": os.getenv("INDEX_NAME", "legal-documents-index"),
-    "upload_batch_size": int(os.getenv("SEARCH_UPLOAD_BATCH_SIZE", "100")),  # Batch size for uploading
-    "max_retries": int(os.getenv("SEARCH_MAX_RETRIES", "3")),
-    "retry_delay": float(os.getenv("SEARCH_RETRY_DELAY", "2.0"))
+    "endpoint":          os.getenv("SEARCH_ENDPOINT"),
+    "key":               os.getenv("SEARCH_KEY"),
+    "upload_batch_size": int(os.getenv("SEARCH_UPLOAD_BATCH_SIZE", "100")),
+    "max_retries":       int(os.getenv("SEARCH_MAX_RETRIES", "3")),
+    "retry_delay":       float(os.getenv("SEARCH_RETRY_DELAY", "2.0"))
 }
 
 # ========================================
-# EMBEDDING MODEL CONFIGURATION
+# DOCUMENT TYPE CONFIG
+# doc_type 0 = High Court, 1 = Supreme Court
+# Defines: ADLS input path, index names per index_type, jurisdiction
+# ========================================
+DOC_TYPE_CONFIG = {
+    0: {
+        "name":            "High Court",
+        "jurisdiction":    "India",
+        "adls_input_path": os.getenv("HC_INPUT_PATH", "app/High_Court_Judgements/"),
+        "index_names": {
+            0: "hc-ai-assistant",
+            1: "hc-precedent-finder"
+        }
+    },
+    1: {
+        "name":            "Supreme Court",
+        "jurisdiction":    "India",
+        "adls_input_path": os.getenv("SC_INPUT_PATH", "app/Supreme_Court_Judgements/"),
+        "index_names": {
+            0: "sc-ai-assistant",
+            1: "sc-precedent-finder"
+        }
+    },
+}
+
+# ========================================
+# ROLE WEIGHTS
+# Tunable here — no need to touch pipeline code
+# ========================================
+
+# AI Assistant: uniform weights — selection is purely proportional to
+# the role distribution naturally present in each document
+AI_ASSISTANT_ROLE_WEIGHTS = {
+    "Arguments":  1.0,
+    "Precedents": 1.0,
+    "Facts":      1.0,
+    "Issues":     1.0,
+    "Reasoning":  1.0,
+    "Decision":   1.0,
+    "Statute":    1.0,
+    "Preamble":   1.0,
+    "Others":     1.0
+}
+
+# Precedent Finder: biased toward roles that carry legal significance
+# for case-to-case precedent retrieval
+PRECEDENT_FINDER_ROLE_WEIGHTS = {
+    "Decision":   3.0,   # The actual ruling — most critical for precedent
+    "Precedents": 3.0,   # Prior case citations — core of precedent finding
+    "Issues":     2.0,   # Legal questions framed by the court
+    "Reasoning":  2.0,   # Court's legal analysis supporting the ruling
+    "Arguments":  1.0,   # Parties' submissions — some relevance
+    "Facts":      0.5,   # Case-specific background — low precedent value
+    "Statute":    0.5,   # Statutory text — relevant but not precedent-defining
+    "Preamble":   0.3,   # Introductory formalities — minimal value
+    "Others":     0.2    # Noise
+}
+
+# ========================================
+# INDEX TYPE CONFIG
+# index_type 0 = AI Assistant, 1 = Precedent Finder
+# ========================================
+INDEX_TYPE_CONFIG = {
+    0: {
+        "name": "AI Assistant",
+        "role_weights": AI_ASSISTANT_ROLE_WEIGHTS
+    },
+    1: {
+        "name": "Precedent Finder",
+        "role_weights": PRECEDENT_FINDER_ROLE_WEIGHTS
+    }
+}
+
+# ========================================
+# EMBEDDING MODEL
 # ========================================
 EMBEDDING_CONFIG = {
     "model_name": os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
-    "dimensions": int(os.getenv("EMBEDDING_DIMENSIONS", "768")),  # Must match model output
-    "batch_size": int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))  # For encoding in batches
+    "dimensions": int(os.getenv("EMBEDDING_DIMENSIONS", "384")),  # all-MiniLM-L6-v2 = 384-dim
+    "batch_size": int(os.getenv("EMBEDDING_BATCH_SIZE", "1024")),
+    "multi_gpu":  os.getenv("EMBEDDING_MULTI_GPU", "true").lower() == "true",
+    "use_amp":    os.getenv("EMBEDDING_USE_AMP", "true").lower() == "true",
 }
 
 # ========================================
-# ROLE CLASSIFICATION CONFIGURATION
+# ROLE CLASSIFICATION
 # ========================================
 ROLE_CLASSIFICATION_CONFIG = {
-    # Enable/disable role classification
-    "enabled": os.getenv("ROLE_CLASSIFICATION_ENABLED", "true").lower() == "true",
-    
-    # Classification method: "embedding" or "finetuned"
-    # "embedding" uses semantic similarity (no training needed, works out of the box)
-    # "finetuned" uses a fine-tuned transformer model (requires training data)
-    "method": os.getenv("ROLE_CLASSIFICATION_METHOD", "embedding"),  # embedding | finetuned
-    
-    # ===== EMBEDDING-BASED CLASSIFICATION SETTINGS =====
-    # Uses the same embedding model as the main pipeline
-    # Compares chunk embeddings with role description embeddings
-    
-    # Confidence threshold for embedding-based classification (0.0-1.0)
-    # Lower = more chunks classified, higher = stricter classification
-    # Recommended: 0.25-0.4 for legal documents
-    "confidence_threshold": float(os.getenv("ROLE_CONFIDENCE_THRESHOLD", "0.6")),
-    
-    # How to aggregate multiple descriptions per role: "max" or "mean"
-    # "max" = use highest similarity among descriptions (recommended)
-    # "mean" = use average similarity among descriptions
-    "aggregation_method": os.getenv("ROLE_AGGREGATION_METHOD", "mean"),
-    
-    # Role descriptions dictionary for embedding-based classification
-    # Maps role names to lists of description sentences
-    # These descriptions are embedded and compared with chunk embeddings
-    # Customize these based on your document types and needs!
-    "role_descriptions_dict": ROLE_DESCRIPTIONS_DICT,
-    
-    # ===== FINE-TUNED MODEL SETTINGS (FUTURE USE) =====
-    # Only used if method="finetuned"
-    # Requires training data and fine-tuned model
-    
-    # Model configuration for fine-tuned approach
-    "model_name": os.getenv("ROLE_MODEL_NAME", "microsoft/deberta-v3-base"),  # Base model
-    "use_finetuned": os.getenv("USE_FINETUNED_ROLE_MODEL", "false").lower() == "true",
-    "finetuned_model_path": os.getenv("FINETUNED_ROLE_MODEL_PATH", "./models/role_classifier"),
-    
-    # Role definitions for fine-tuned approach (simple list of role names)
-    # Only used if role_descriptions_dict is not provided
-    "role_definitions": [
-        role.strip() 
-        for role in os.getenv(
-            "ROLE_DEFINITIONS",
-            "case_metadata , procedural_history , factual_background , legal_issues , legal_analysis , holding_and_conlusions ,others"
-        ).split(',')
-    ],
-    
-    # Processing settings (shared by both methods)
-    "batch_size": int(os.getenv("ROLE_CLASSIFICATION_BATCH_SIZE", "32")),
-    "max_length": int(os.getenv("ROLE_MAX_LENGTH", "512")),
-    "device": os.getenv("ROLE_DEVICE", None),  # None for auto-detect, 'cuda' or 'cpu'
-    
-    # Output settings
-    "add_probabilities": os.getenv("ROLE_ADD_PROBABILITIES", "true").lower() == "true",
+    "enabled":              os.getenv("ROLE_CLASSIFICATION_ENABLED", "true").lower() == "true",
+    "use_finetuned":        os.getenv("USE_FINETUNED_ROLE_MODEL", "true").lower() == "true",
+    "finetuned_model_path": os.getenv("FINETUNED_ROLE_MODEL_PATH", "./final_model"),
+    "device":               os.getenv("ROLE_DEVICE", None),
+    "batch_size":           int(os.getenv("ROLE_CLASSIFICATION_BATCH_SIZE", "256")),
+    "max_length":           int(os.getenv("ROLE_MAX_LENGTH", "512")),
+    "use_amp":              os.getenv("ROLE_USE_AMP", "true").lower() == "true",
+    "num_workers":          int(os.getenv("ROLE_NUM_WORKERS", "4")),
+    "num_gpus":             int(os.getenv("ROLE_NUM_GPUS", "6")),
 }
 
 # ========================================
-# SEMANTIC CHUNKING CONFIGURATION
+# SEMANTIC CHUNKING
 # ========================================
 CHUNKING_CONFIG = {
-    "similarity_threshold": float(os.getenv("SIMILARITY_THRESHOLD", "0.7")),
+    "similarity_threshold":    float(os.getenv("SIMILARITY_THRESHOLD", "0.7")),
     "min_sentences_per_chunk": int(os.getenv("MIN_SENTENCES_PER_CHUNK", "3")),
     "max_sentences_per_chunk": int(os.getenv("MAX_SENTENCES_PER_CHUNK", "10")),
-    "min_chunk_size": int(os.getenv("MIN_CHUNK_SIZE", "100")),  # Minimum character count
-    "compute_doc_similarity": os.getenv("COMPUTE_DOC_SIMILARITY", "true").lower() == "true",
-    "top_k": int(os.getenv("TOP_K_CHUNKS", "4")) if os.getenv("TOP_K_CHUNKS") else None,  # None = all chunks
-    "top_k_method": os.getenv("TOP_K_METHOD", "doc_similarity")  # or 'avg_similarity'
+    "min_chunk_size":          int(os.getenv("MIN_CHUNK_SIZE", "100")),
+    "compute_doc_similarity":  os.getenv("COMPUTE_DOC_SIMILARITY", "true").lower() == "true",
+    "top_k":                   int(os.getenv("TOP_K_CHUNKS")) if os.getenv("TOP_K_CHUNKS") else None,
+    "top_k_method":            os.getenv("TOP_K_METHOD", "doc_similarity"),
+    "num_gpus":                int(os.getenv("CHUNKING_NUM_GPUS", "6")),
+    "device":                  os.getenv("CHUNKING_DEVICE", None),
 }
 
 # ========================================
-# PROCESSING CONFIGURATION
+# PROCESSING
 # ========================================
 PROCESSING_CONFIG = {
-    "batch_size": int(os.getenv("BATCH_SIZE", "10")),  # Documents per batch
-    "num_workers": int(os.getenv("NUM_WORKERS", "4")),  # Parallel workers
-    "use_parallel": os.getenv("USE_PARALLEL", "true").lower() == "true",
-    "use_caching": os.getenv("USE_CACHING", "true").lower() == "true",
-    "skip_errors": os.getenv("SKIP_ERRORS", "true").lower() == "true",
-    "checkpoint_interval": int(os.getenv("CHECKPOINT_INTERVAL", "100"))  # Save progress every N docs
+    "batch_size": int(os.getenv("BATCH_SIZE", "10")),
+    "skip_errors": os.getenv("SKIP_ERRORS", "true").lower() == "true"
 }
 
 # ========================================
-# TEXT CLEANING CONFIGURATION
-# ========================================
-CLEANING_CONFIG = {
-    "remove_law_reports": True,
-    "remove_judge_names": True,
-    "remove_citations": True,
-    "remove_page_headers": True,
-    "normalize_whitespace": True
-}
-
-# ========================================
-# PARAGRAPH SPLITTER CONFIGURATION (Legacy)
-# ========================================
-PARAGRAPH_SPLITTER_CONFIG = {
-    "strategy": "double_newline",
-    "custom_pattern": None,
-    "fixed_size": 1000,
-    "min_chunk_size": 50
-}
-
-# ========================================
-# OUTPUT CONFIGURATION
-# ========================================
-OUTPUT_CONFIG = {
-    "intermediate_dir": os.getenv("INTERMEDIATE_DIR", "output/intermediate"),
-    "final_dir": os.getenv("FINAL_DIR", "output/final"),
-    "save_intermediate": os.getenv("SAVE_INTERMEDIATE", "true").lower() == "true",
-    "all_chunks_filename": "all_chunks.json",
-    "top_k_chunks_filename": "top_k_chunks.json",
-    "embeddings_filename": "chunks_with_embeddings.json",
-    "stats_filename": "processing_stats.json"
-}
-
-# ========================================
-# PIPELINE CONFIGURATION
+# PIPELINE
 # ========================================
 PIPELINE_CONFIG = {
-    "mode": os.getenv("PIPELINE_MODE", "full"),  # full, test, partial
-    "max_documents": int(os.getenv("MAX_DOCUMENTS", "100")) if os.getenv("MAX_DOCUMENTS") else None,  # Limit for testing
-    "create_index": os.getenv("CREATE_INDEX", "true").lower() == "true",  # Whether to create/update index
-    "upload_to_search": os.getenv("UPLOAD_TO_SEARCH", "true").lower() == "true",  # Whether to upload results
+    "max_documents":         int(os.getenv("MAX_DOCUMENTS")) if os.getenv("MAX_DOCUMENTS") else None,
+    "create_index":          os.getenv("CREATE_INDEX", "true").lower() == "true",
+    "upload_to_search":      os.getenv("UPLOAD_TO_SEARCH", "true").lower() == "true",
+    "processing_batch_size": int(os.getenv("PROCESSING_BATCH_SIZE", "64")),
+    "io_workers":            int(os.getenv("IO_WORKERS", "64")),
 }
 
 # ========================================
 # VALIDATION
 # ========================================
 def validate_config():
-    """Validate that all required configuration values are present."""
     errors = []
-    
-    # Check ADLS config
+
     if not ADLS_CONFIG["account_name"]:
         errors.append("ADLS_ACCOUNT_NAME not set")
     if not ADLS_CONFIG["account_key"]:
         errors.append("ADLS_ACCOUNT_KEY not set")
     if not ADLS_CONFIG["container_name"]:
         errors.append("ADLS_CONTAINER_NAME not set")
-    
-    # Check Search config
+
     if PIPELINE_CONFIG["upload_to_search"]:
         if not SEARCH_CONFIG["endpoint"]:
             errors.append("SEARCH_ENDPOINT not set")
         if not SEARCH_CONFIG["key"]:
             errors.append("SEARCH_KEY not set")
-    
-    # Check role classification config
-    if ROLE_CLASSIFICATION_CONFIG["enabled"]:
-        if not ROLE_CLASSIFICATION_CONFIG["role_definitions"]:
-            errors.append("ROLE_DEFINITIONS not set or empty")
-        
-        if ROLE_CLASSIFICATION_CONFIG["use_finetuned"]:
-            model_path = ROLE_CLASSIFICATION_CONFIG["finetuned_model_path"]
-            if not model_path or not os.path.exists(model_path):
-                errors.append(f"Fine-tuned model path does not exist: {model_path}")
-    
+
+    if ROLE_CLASSIFICATION_CONFIG["enabled"] and ROLE_CLASSIFICATION_CONFIG["use_finetuned"]:
+        model_path = ROLE_CLASSIFICATION_CONFIG["finetuned_model_path"]
+        if not model_path or not os.path.exists(model_path):
+            errors.append(f"Fine-tuned model path does not exist: {model_path}")
+
     if errors:
-        raise ValueError(f"Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors))
-    
+        raise ValueError("Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors))
+
     return True
-
-# ========================================
-# HELPER FUNCTIONS FOR BACKWARDS COMPATIBILITY
-# ========================================
-def load_processing_config():
-    """Load processing configuration (for backward compatibility)."""
-    return PROCESSING_CONFIG
-
-def load_paragraph_splitter_config():
-    """Load paragraph splitter configuration (for backward compatibility)."""
-    return PARAGRAPH_SPLITTER_CONFIG
-
-# Custom Legal Abbreviations (for backward compatibility)
-CUSTOM_ABBREVIATIONS = [
-    "Pvt.", "Pty.", "Intl.", "Dept.", "Assn.", "Bros.", "Mfg.", "Dist."
-]
-
-# Legacy file paths (kept for backward compatibility)
-INPUT_FILE = "legislation_input.json"
-OUTPUT_FILE = "vector_ready_legislation.json"
-LOG_FILE = "processing.log"

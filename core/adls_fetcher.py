@@ -55,30 +55,49 @@ class ADLSFetcher:
     ) -> List[str]:
         """
         List all files matching pattern in ADLS path.
-        
+
         Args:
             path: Base path in container
             pattern: File pattern (e.g., '*.json')
             recursive: Whether to search recursively
-            
+
         Returns:
             List of file paths
         """
         logger.info(f"Listing files in path: {path}, pattern: {pattern}, recursive: {recursive}")
-        
+
         try:
             paths = self.file_system_client.get_paths(path=path, recursive=recursive)
-            
+
             # Filter by pattern
             extension = pattern.replace("*", "")
             file_paths = [
-                p.name for p in paths 
+                p.name for p in paths
                 if not p.is_directory and p.name.endswith(extension)
             ]
-            
+
             logger.info(f"Found {len(file_paths)} files matching pattern")
             return file_paths
-            
+
+        except AzureError as e:
+            logger.error(f"Error listing files: {e}")
+            raise
+
+    def list_files_iter(
+        self,
+        path: str = "",
+        pattern: str = "*.json",
+        recursive: bool = True
+    ) -> Generator[str, None, None]:
+        """
+        Lazy generator version of list_files — never materialises the full listing.
+        Azure's get_paths() pages results internally; we just yield names one by one.
+        """
+        extension = pattern.replace("*", "")
+        try:
+            for p in self.file_system_client.get_paths(path=path, recursive=recursive):
+                if not p.is_directory and p.name.endswith(extension):
+                    yield p.name
         except AzureError as e:
             logger.error(f"Error listing files: {e}")
             raise
