@@ -299,6 +299,31 @@ class ProductionPipeline:
                 year_paths = [self.adls_input_path]
 
             for ypath in year_paths:
+                # Derive the matching processed/ year-path by stripping the same
+                # prefixes used in get_all_chunks_adls_path / get_done_marker_path.
+                _skip = {'raw', 'newapp', 'input', 'data', 'app'}
+                _parts = [p for p in Path(ypath.rstrip('/')).parts
+                          if p.lower() not in _skip]
+                _proc_year_path = f"{self.base_output_path}/{'/'.join(_parts)}"
+                _cache_t0 = time.time()
+                try:
+                    _year_paths = set(
+                        self.adls_fetcher.list_files_iter(
+                            path=_proc_year_path,
+                            pattern="*.json",
+                            recursive=True,
+                        )
+                    )
+                except Exception:
+                    # Path doesn't exist yet — fresh year, nothing processed.
+                    _year_paths = set()
+                self._processed_cache.update(_year_paths)
+                logger.info(
+                    f"Lazy cache loaded {len(_year_paths):,} paths for "
+                    f"{_proc_year_path!r} in {time.time() - _cache_t0:.1f}s  "
+                    f"(total cache size: {len(self._processed_cache):,})"
+                )
+
                 file_iter = self.adls_fetcher.list_files_iter(
                     path=ypath,
                     pattern=ADLS_CONFIG["file_pattern"],
@@ -953,21 +978,11 @@ class ProductionPipeline:
                 vector_dimensions=EMBEDDING_CONFIG["dimensions"]
             )
 
-        # Build a set of all already-processed paths once at startup so that
-        # _check_one can do O(1) set lookups instead of per-file HTTP HEAD calls.
-        logger.info("Building processed-path cache from ADLS (one-time listing)…")
-        cache_start = time.time()
-        self._processed_cache: set = set(
-            self.adls_fetcher.list_files_iter(
-                path=self.base_output_path,
-                pattern="*.json",
-                recursive=True,
-            )
-        )
-        logger.info(
-            f"Processed cache built: {len(self._processed_cache):,} paths "
-            f"in {time.time() - cache_start:.1f}s"
-        )
+        # Lazy per-year cache — populated inside _lister() for each year before
+        # its input files are checked.  Avoids listing all 17M processed/ paths
+        # upfront (which costs ~5 GB RAM and 30-60 min).
+        self._processed_cache: set = set()
+        logger.info("Processed-path cache initialised (lazy — loads per year in _lister)")
 
         # Stream file listing lazily — no full materialisation into memory.
         # Checks done/resume markers and reads JSON only for pending files.
@@ -982,9 +997,13 @@ class ProductionPipeline:
         stream_thread.join()
         skipped = skipped_ref[0]
 
+        elapsed = time.time() - start
+        n_proc = upload_stats['processed']
+        docs_per_sec = n_proc / elapsed if elapsed > 0 else 0
         logger.info(
-            f"Documents — processed: {upload_stats['processed']}, "
-            f"resume: {len(resume_candidates)}, skipped: {skipped}"
+            f"Documents — processed: {n_proc}, "
+            f"resume: {len(resume_candidates)}, skipped: {skipped}  |  "
+            f"{docs_per_sec:.2f} docs/s  ({elapsed:.1f}s total)"
         )
 
         if PIPELINE_CONFIG["upload_to_search"]:
