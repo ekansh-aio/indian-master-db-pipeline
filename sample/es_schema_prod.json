@@ -1,0 +1,51 @@
+{
+  "settings": {
+    "number_of_shards": 8,
+    "number_of_replicas": 1,
+    "refresh_interval": "30s",
+    "index": {
+      "max_result_window": 100000
+    }
+  },
+  "mappings": {
+    "properties": {
+      "doc_id":                { "type": "keyword" },
+      "date":                  { "type": "keyword" },
+      "jurisdiction":          { "type": "keyword" },
+      "doc_name":              { "type": "keyword" },
+      "year":                  { "type": "keyword" },
+      "bench":                 { "type": "keyword" },
+      "court_code":            { "type": "keyword" },
+      "title":                 { "type": "text", "analyzer": "standard", "fields": { "keyword": { "type": "keyword" } } },
+      "judge":                 { "type": "text", "analyzer": "standard", "fields": { "keyword": { "type": "keyword" } } },
+      "court":                 { "type": "keyword" },
+      "cnr":                   { "type": "keyword" },
+      "date_of_registration":  { "type": "keyword" },
+      "decision_date":         { "type": "keyword" },
+      "disposal_nature":       { "type": "keyword" },
+      "pdf_link":              { "type": "keyword", "index": false },
+      "pdf_exists":            { "type": "boolean" },
+      "original_source_path":  { "type": "keyword", "index": false },
+      "all_chunks_path":       { "type": "keyword", "index": false },
+      "source_file":           { "type": "keyword", "index": false },
+      "service_type":          { "type": "keyword" },
+
+      "chunks": {
+        "type": "nested",
+        "properties": {
+          "chunk_id":            { "type": "keyword" },
+          "text":                { "type": "text", "analyzer": "standard" },
+          "role":                { "type": "keyword" },
+          "same_role_chunk_ids": { "type": "keyword" },
+          "embedding": {
+            "type": "dense_vector",
+            "dims": 384,
+            "index": true,
+            "similarity": "cosine",
+            "index_options": { "type": "int8_hnsw" }
+          }
+        }
+      }
+    }
+  }
+}
