@@ -40,7 +40,6 @@ import queue
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Tuple
 
@@ -324,17 +323,32 @@ def read_batch_parallel(
     paths: List[str],
     workers: int = IO_WORKERS,
 ) -> List[Tuple[str, List[Dict]]]:
-    results = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(read_chunks_file_with_retry, fetcher, p): p for p in paths}
-        for fut in as_completed(futures):
-            path = futures[fut]
-            try:
-                chunks = fut.result()
-                if chunks:
+    # Use raw threads instead of ThreadPoolExecutor to avoid
+    # "cannot schedule new futures after interpreter shutdown" when the
+    # sentence-transformers multi-process pool is also running.
+    results: List[Tuple[str, List[Dict]]] = []
+    lock = threading.Lock()
+    sem = threading.Semaphore(workers)
+
+    def _worker(path: str) -> None:
+        try:
+            chunks = read_chunks_file_with_retry(fetcher, path)
+            if chunks:
+                with lock:
                     results.append((path, chunks))
-            except Exception as e:
-                log.warning("Error reading %s: %s", path, e)
+        except Exception as e:
+            log.warning("Error reading %s: %s", path, e)
+        finally:
+            sem.release()
+
+    threads = []
+    for p in paths:
+        sem.acquire()
+        t = threading.Thread(target=_worker, args=(p,), daemon=True)
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
     return results
 
 
