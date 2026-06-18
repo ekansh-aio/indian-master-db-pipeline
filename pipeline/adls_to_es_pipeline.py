@@ -712,6 +712,10 @@ def parse_args() -> argparse.Namespace:
         "--verify-resume", action="store_true", dest="verify_resume",
         help="Check local done IDs against ES and report discrepancies (read-only, no upload)",
     )
+    p.add_argument(
+        "--reverse", action="store_true",
+        help="Process years in descending order (most recent first)",
+    )
     return p.parse_args()
 
 
@@ -730,11 +734,8 @@ def main() -> None:
         log.error("Use --years or --year-range, not both")
         sys.exit(1)
     if args.year_range:
-        start, end = args.year_range
-        if start > end:
-            log.error("--year-range FROM must be <= TO")
-            sys.exit(1)
-        target_years = list(range(start, end + 1))
+        a, b = args.year_range
+        target_years = list(range(min(a, b), max(a, b) + 1))
     elif args.years:
         target_years = args.years
     else:
@@ -767,7 +768,7 @@ def main() -> None:
     all_stats = []
     total_start = time.time()
 
-    for i, year in enumerate(sorted(target_years), 1):
+    for i, year in enumerate(sorted(target_years, reverse=args.reverse), 1):
         log.info("[%d/%d] Processing year %d", i, len(target_years), year)
         year_stats = process_year(
             year=year,
