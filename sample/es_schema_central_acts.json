@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "refresh_interval": "30s",
+    "index": {
+      "max_result_window": 100000
+    }
+  },
+  "mappings": {
+    "properties": {
+      "doc_id":      { "type": "keyword" },
+      "act_name":    { "type": "text", "analyzer": "standard", "fields": { "raw": { "type": "keyword" } } },
+      "act_number":  { "type": "keyword" },
+      "year":        { "type": "integer" },
+      "jurisdiction":{ "type": "keyword" },
+      "pdf_url":     { "type": "keyword", "index": false },
+      "pdf_exists":  { "type": "boolean" },
+      "handle_id":   { "type": "keyword" },
+      "source":      { "type": "keyword" },
+      "chunks": {
+        "type": "nested",
+        "properties": {
+          "chunk_id":  { "type": "keyword" },
+          "text":      { "type": "text", "analyzer": "standard" },
+          "embedding": {
+            "type": "dense_vector",
+            "dims": 384,
+            "index": true,
+            "similarity": "cosine",
+            "index_options": {
+              "type": "int8_hnsw",
+              "m": 16,
+              "ef_construction": 100
+            }
+          }
+        }
+      }
+    }
+  }
+}

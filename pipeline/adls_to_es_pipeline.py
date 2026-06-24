@@ -274,7 +274,7 @@ def embed_texts(
     import numpy as np
 
     if pool is not None:
-        embeddings = SentenceTransformer.encode_multi_process(
+        embeddings = model.encode_multi_process(
             texts,
             pool,
             batch_size=EMBED_BATCH_SIZE,
@@ -299,7 +299,9 @@ def embed_texts(
 # ---------------------------------------------------------------------------
 
 def iter_year_paths(fetcher: ADLSFetcher, year: int) -> Generator[str, None, None]:
-    base = f"{_ADLS_PROCESSED_PATH}/year={year}"
+    # HC uses "year=YYYY" folder prefix; SC uses plain "YYYY"
+    folder = f"year={year}" if DOC_TYPE == "hc" else str(year)
+    base = f"{_ADLS_PROCESSED_PATH}/{folder}"
     return fetcher.list_files_iter(path=base, pattern="*_all_chunks.json", recursive=True)
 
 
@@ -394,8 +396,13 @@ def select_and_prepare(
 # ---------------------------------------------------------------------------
 
 def _doc_id_from_path(path: str) -> str:
-    """Best-effort doc_id extraction from ADLS path without reading the file."""
-    name = Path(path).stem           # e.g. "HC_123456_all_chunks"
+    """Best-effort doc_id extraction from ADLS path without reading the file.
+
+    HC: filename stem is the doc_id (e.g. "HC_123456").
+    SC: doc_id is a hash stored inside the file, so we use the filename as a
+        stable local-resume key — it uniquely identifies the source judgment.
+    """
+    name = Path(path).stem           # e.g. "HC_123456_all_chunks" or "1950_1_15_25_EN_all_chunks"
     if name.endswith("_all_chunks"):
         return name[: -len("_all_chunks")]
     return name
@@ -442,6 +449,30 @@ def append_done_ids(year: int, new_ids: set) -> None:
     with progress_path(year).open("a", encoding="utf-8") as f:
         for id_ in new_ids:
             f.write(json.dumps(id_) + "\n")
+
+
+def upload_inventory_es(fetcher: ADLSFetcher, year: int, done_ids: set) -> None:
+    """Write _inventory_es.json for this year to ADLS — tracks what is in ES."""
+    if not done_ids:
+        log.info("  Year %d: no uploaded docs — skipping _inventory_es.json", year)
+        return
+    folder = f"year={year}" if DOC_TYPE == "hc" else str(year)
+    adls_path = f"{_ADLS_PROCESSED_PATH}/{folder}/_inventory_es.json"
+    collection = "HC_Judgements" if DOC_TYPE == "hc" else "SC_Judgements"
+    payload = json.dumps({
+        "collection": collection,
+        "year": year,
+        "path": adls_path,
+        "files": sorted(done_ids),
+        "file_count": len(done_ids),
+    }, ensure_ascii=False).encode("utf-8")
+    try:
+        fc = fetcher.file_system_client.get_file_client(adls_path)
+        fc.upload_data(payload, overwrite=True)
+        log.info("  Uploaded _inventory_es.json for %s year %d (%d docs) → %s",
+                 DOC_TYPE.upper(), year, len(done_ids), adls_path)
+    except Exception as e:
+        log.error("  Failed to upload _inventory_es.json for year %d: %s", year, e)
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +566,14 @@ def process_year(
 
         # --- ES mget pre-filter: single HTTP call for the whole buffer ---
         if resume:
-            path_ids = {p: _doc_id_from_path(p) for p, _ in raw}
+            # For HC, doc_id equals the filename stem (safe to derive from path).
+            # For SC, doc_id is a hash stored in the data itself — read it from
+            # the first chunk to get the real ES _id.
+            if DOC_TYPE == "sc":
+                path_ids = {p: (chunks[0].get("doc_id") or _doc_id_from_path(p))
+                            for p, chunks in raw}
+            else:
+                path_ids = {p: _doc_id_from_path(p) for p, _ in raw}
             found_in_es = bulk_mget_exists(es, list(path_ids.values()))
             if found_in_es:
                 new_es_ids = found_in_es - done_ids
@@ -582,6 +620,10 @@ def process_year(
             for j, sc in enumerate(slim_chunks):
                 sc["embedding"] = embeddings[offset + j].tolist()
             doc = dict(metadata)
+            # Coerce Python-string booleans to real JSON booleans (ES strict boolean mapping)
+            for _bool_field in ("pdf_exists",):
+                if _bool_field in doc and isinstance(doc[_bool_field], str):
+                    doc[_bool_field] = doc[_bool_field].strip().lower() == "true"
             doc["chunks"] = slim_chunks
             parent_docs.append(doc)
 
@@ -622,6 +664,8 @@ def process_year(
         stats["read_ok"], stats["uploaded_ok"], stats["upload_errors"],
         stats["throughput_docs_s"],
     )
+
+    upload_inventory_es(fetcher, year, done_ids)
     return stats
 
 
