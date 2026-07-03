@@ -8,8 +8,12 @@ azure-storage-file-datalake
 azure-search-documents
 azure-core
 
-# PyTorch stack
-torch
+# Elasticsearch
+elasticsearch>=8.0.0
+
+# PyTorch stack — pin to cu121 for Azure ML (driver 12.2)
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
 scikit-learn
 
 # HuggingFace stack (MATCHED)
