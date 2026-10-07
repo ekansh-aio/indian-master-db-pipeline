@@ -22,4 +22,25 @@ env/
 # !.vscode/launch.json
 # !.vscode/extensions.json
 
+# Local agent / editor settings
+.claude/
+
+# Runtime logs and scan output
+logs/
+*.log
+adls_size_result.txt
+
+# Scrape temp state
+captcha-failures/
+captcha-tmp/
+
+# SQLite upload/scrape trackers (runtime state, never commit)
+*.db
+*.db-shm
+*.db-wal
+
+# Fine-tuned model weights (downloaded/generated, ~437MB)
 final_model/
+
+# ADLS backfill checkpoint
+pipelines/pdf_content_type_fix_checkpoint.db

@@ -22,3 +22,23 @@ sentence-transformers
 # datasets
 # accelerate
 huggingface_hub
+
+# HC ingest pipeline (pipelines/hc/ingest.py)
+pypdf           # PDF text extraction
+pandas          # parquet metadata reading
+pyarrow         # pandas parquet backend
+
+# HC scraper (pipelines/hc/scrape/) — eCourts portal → ADLS
+# Requires: indian-high-court-judgments repo checked out (SCRAPER_REPO env var)
+pypdf           # PDF text extraction (used by scraper + ingest)
+requests        # HTTP client for eCourts portal
+beautifulsoup4  # HTML parsing (BeautifulSoup) — import as bs4
+lxml            # XPath parsing for case detail extraction
+onnx            # CAPTCHA model format validation
+onnxruntime     # CAPTCHA model inference
+pillow          # image preprocessing for CAPTCHA solver
+
+# Optional GPU OCR (uncomment as needed)
+# pymupdf       # or: pip install pymupdf  (fitz — page-to-image for OCR)
+# rapidocr-paddle paddlepaddle-gpu   # RapidOCR backend
+# easyocr                            # EasyOCR backend
