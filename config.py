@@ -1,6 +1,6 @@
 """
 Configuration for the legal document processing pipeline.
-Credentials are loaded from .env. Paths and index names are defined here.
+Credentials are loaded from .env.
 """
 import os
 from dotenv import load_dotenv
@@ -17,8 +17,7 @@ LOGGING_CONFIG = {
 }
 
 # ========================================
-# AZURE DATA LAKE STORAGE — credentials only
-# Paths are in DOC_TYPE_CONFIG below
+# AZURE DATA LAKE STORAGE
 # ========================================
 ADLS_CONFIG = {
     "account_name":   os.getenv("ADLS_ACCOUNT_NAME"),
@@ -29,89 +28,45 @@ ADLS_CONFIG = {
 }
 
 # ========================================
-# AZURE AI SEARCH — credentials only
-# Index names are in DOC_TYPE_CONFIG below
+# ELASTICSEARCH
 # ========================================
-SEARCH_CONFIG = {
-    "endpoint":          os.getenv("SEARCH_ENDPOINT"),
-    "key":               os.getenv("SEARCH_KEY"),
-    "upload_batch_size": int(os.getenv("SEARCH_UPLOAD_BATCH_SIZE", "100")),
-    "max_retries":       int(os.getenv("SEARCH_MAX_RETRIES", "3")),
-    "retry_delay":       float(os.getenv("SEARCH_RETRY_DELAY", "2.0"))
+ES_CONFIG = {
+    "url":       os.getenv("ES_URL"),
+    "api_key":   os.getenv("ES_API_KEY"),
+    "user":      os.getenv("ES_USER"),
+    "password":  os.getenv("ES_PASS"),
 }
 
 # ========================================
 # DOCUMENT TYPE CONFIG
 # doc_type 0 = High Court, 1 = Supreme Court
-# Defines: ADLS input path, index names per index_type, jurisdiction
 # ========================================
 DOC_TYPE_CONFIG = {
     0: {
         "name":            "High Court",
         "jurisdiction":    "India",
         "adls_input_path": os.getenv("HC_INPUT_PATH", "app/High_Court_Judgements/"),
-        "index_names": {
-            0: "hc-ai-assistant",
-            1: "hc-precedent-finder"
-        }
     },
     1: {
         "name":            "Supreme Court",
         "jurisdiction":    "India",
         "adls_input_path": os.getenv("SC_INPUT_PATH", "app/Supreme_Court_Judgements/"),
-        "index_names": {
-            0: "sc-ai-assistant",
-            1: "sc-precedent-finder"
-        }
     },
 }
 
 # ========================================
-# ROLE WEIGHTS
-# Tunable here — no need to touch pipeline code
+# ROLE WEIGHTS (for top-K selection during ES upload)
 # ========================================
-
-# AI Assistant: uniform weights — selection is purely proportional to
-# the role distribution naturally present in each document
-AI_ASSISTANT_ROLE_WEIGHTS = {
-    "Arguments":  1.0,
-    "Precedents": 1.0,
-    "Facts":      1.0,
-    "Issues":     1.0,
-    "Reasoning":  1.0,
-    "Decision":   1.0,
-    "Statute":    1.0,
-    "Preamble":   1.0,
-    "Others":     1.0
-}
-
-# Precedent Finder: biased toward roles that carry legal significance
-# for case-to-case precedent retrieval
-PRECEDENT_FINDER_ROLE_WEIGHTS = {
-    "Decision":   3.0,   # The actual ruling — most critical for precedent
-    "Precedents": 3.0,   # Prior case citations — core of precedent finding
-    "Issues":     2.0,   # Legal questions framed by the court
-    "Reasoning":  2.0,   # Court's legal analysis supporting the ruling
-    "Arguments":  1.0,   # Parties' submissions — some relevance
-    "Facts":      0.5,   # Case-specific background — low precedent value
-    "Statute":    0.5,   # Statutory text — relevant but not precedent-defining
-    "Preamble":   0.3,   # Introductory formalities — minimal value
-    "Others":     0.2    # Noise
-}
-
-# ========================================
-# INDEX TYPE CONFIG
-# index_type 0 = AI Assistant, 1 = Precedent Finder
-# ========================================
-INDEX_TYPE_CONFIG = {
-    0: {
-        "name": "AI Assistant",
-        "role_weights": AI_ASSISTANT_ROLE_WEIGHTS
-    },
-    1: {
-        "name": "Precedent Finder",
-        "role_weights": PRECEDENT_FINDER_ROLE_WEIGHTS
-    }
+ROLE_WEIGHTS = {
+    "Decision":   3.0,
+    "Precedents": 3.0,
+    "Issues":     2.5,
+    "Preamble":   2.5,
+    "Facts":      2.5,
+    "Statute":    1.5,
+    "Reasoning":  0.4,
+    "Arguments":  0.3,
+    "Others":     0.2,
 }
 
 # ========================================
@@ -168,8 +123,6 @@ PROCESSING_CONFIG = {
 # ========================================
 PIPELINE_CONFIG = {
     "max_documents":         int(os.getenv("MAX_DOCUMENTS")) if os.getenv("MAX_DOCUMENTS") else None,
-    "create_index":          os.getenv("CREATE_INDEX", "true").lower() == "true",
-    "upload_to_search":      os.getenv("UPLOAD_TO_SEARCH", "true").lower() == "true",
     "processing_batch_size": int(os.getenv("PROCESSING_BATCH_SIZE", "64")),
     "io_workers":            int(os.getenv("IO_WORKERS", "64")),
 }
@@ -186,12 +139,6 @@ def validate_config():
         errors.append("ADLS_ACCOUNT_KEY not set")
     if not ADLS_CONFIG["container_name"]:
         errors.append("ADLS_CONTAINER_NAME not set")
-
-    if PIPELINE_CONFIG["upload_to_search"]:
-        if not SEARCH_CONFIG["endpoint"]:
-            errors.append("SEARCH_ENDPOINT not set")
-        if not SEARCH_CONFIG["key"]:
-            errors.append("SEARCH_KEY not set")
 
     if ROLE_CLASSIFICATION_CONFIG["enabled"] and ROLE_CLASSIFICATION_CONFIG["use_finetuned"]:
         model_path = ROLE_CLASSIFICATION_CONFIG["finetuned_model_path"]
